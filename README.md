@@ -3,7 +3,7 @@
 Local-first interactive web application for inspecting MCP servers, tracking schema changes, testing tool contracts, and verifying actual tool outcomes.
 
 **Current status (honest):**  
-This is a working vertical slice. Scenarios A, C, and D are implemented and tested with live MCP calls. Scenarios B, E, and F are incomplete. MCP Apps support is not implemented. The React frontend exists as source but is not the running application in this environment.
+This is a working vertical slice. Scenarios A, B, C, D, E, and F are implemented and tested with live MCP calls against the bundled synthetic server. MCP Apps support is not implemented. The React frontend exists as source but is not the running application in this environment.
 
 ## What it does
 - Connects to a bundled synthetic MCP server via the official Python MCP SDK (stdio).
@@ -16,14 +16,14 @@ This is a working vertical slice. Scenarios A, C, and D are implemented and test
 
 ## Architecture
 ```
-┌──────────────────────────┐     REST      ┌──────────────────┐     stdio     ┌──────────────────────┐
+┌─────────────────────────┐     REST      ┌─────────────────┐     stdio     ┌─────────────────────┐
 │ HTML Dashboard           │ ────────────► │ FastAPI Backend  │ ────────────► │ Synthetic MCP Server│
 │ (frontend/public/        │               │ (MCP Client)     │               │ (Official SDK)      │
 │  dashboard.html)         │               │                  │               │                     │
-│                          │               └────────┬─────────┘               └───────────────────────┘
+│                          │               └────────┬─────────┘               └──────────────────────┘
 │ React source exists      │                        │
 │ (not running here)       │                        ▼
-└──────────────────────────┘                 SQLite (snapshots, runs, reviews)
+└─────────────────────────┘                 SQLite (snapshots, runs, reviews)
 ```
 
 ## Quick Start (local only)
@@ -62,17 +62,17 @@ npm run dev
 | Scenario | Status | Notes |
 |----------|--------|-------|
 | A — Healthy connection + tool list | Implemented and tested | Live `tools/list` |
-| B — Schema change detection | Incomplete | `control_schema_version` only mutates in-memory state; actual tool schemas do not change. Snapshot hashes stay identical. |
-| C — Silent failure (`isError: false` but no persist) | Implemented and tested | Correctly flags FAIL |
+| B — Schema change detection | Implemented and tested | `control_schema_version` persists state; next process registers `dynamic_record` with required `priority` (breaking change). Diff shows schema change. |
+| C — Silent failure (`is_error: false` but no persist) | Implemented and tested | Correctly flags FAIL |
 | D — Independent read-back | Implemented and tested | Confirms missing record |
-| E — Protocol-level error vs outcome failure | Incomplete | SDK converts server `ValueError` into tool content instead of `isError` / exception |
-| F — Verifier unavailable → UNKNOWN | Incomplete | Same SDK exception-to-content behavior; not reliable |
+| E — Protocol-level error vs outcome failure | Implemented and tested | Server exception surfaces as `is_error=True` tool result (SDK behavior). Scenario checks the flag. |
+| F — Verifier unavailable → UNKNOWN | Implemented and tested | Control sets verifier off; `get_record` returns `is_error=True`; scenario reports UNKNOWN. |
 
 ## Limitations (explicit)
 - Only the bundled synthetic server is supported. Arbitrary user-provided commands are not executed.
 - Token estimates are character-based approximations.
 - **MCP Apps are not implemented.** The synthetic server imports `Apps()` but registers no `ui://` resource, sets no `_meta.ui.resourceUri`, and serves no MCP App HTML. This is a standalone web application that uses an MCP client.
-- Schema drift detection (B), clean protocol-error distinction (E), and reliable UNKNOWN handling (F) remain incomplete.
+- Schema changes (Scenario B) take effect on the next server process start (stdio client starts a fresh process per API call). After running B, take a new snapshot to observe the drift.
 - Single-user local application. No authentication. Not deployed to production.
 - The React interface is source only in this package; the running dashboard is the plain HTML file.
 
