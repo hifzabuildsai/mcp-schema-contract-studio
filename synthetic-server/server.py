@@ -3,19 +3,34 @@
 Bundled Synthetic MCP Server for MCP Schema Contract & Silent-Failure Studio.
 Supports dynamic schema changes, silent failures, and independent read-back for deterministic demos.
 All scenarios A-F can be exercised against this server.
+
+State is persisted to a JSON file so schema version and records survive across stdio process restarts.
 """
 from mcp.server.mcpserver import MCPServer
 from mcp.server.apps import Apps
 import json
 import time
+from pathlib import Path
 from typing import Any
 
-# In-memory state for read-back verification
-STATE = {
-    "records": {},
-    "schema_version": 1,
-    "verifier_available": True,
-}
+STATE_FILE = Path("/tmp/mcp_studio_synthetic_state.json")
+
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text())
+        except Exception:
+            pass
+    return {
+        "records": {},
+        "schema_version": 1,
+        "verifier_available": True,
+    }
+
+def save_state(state: dict) -> None:
+    STATE_FILE.write_text(json.dumps(state))
+
+STATE = load_state()
 
 apps = Apps()
 mcp = MCPServer("synthetic-studio-server", extensions=[apps])
@@ -31,6 +46,7 @@ def create_record(name: str, value: int) -> str:
     """Create a new record. Healthy write that persists."""
     record_id = f"rec_{int(time.time()*1000)}"
     STATE["records"][record_id] = {"name": name, "value": value, "created": time.time()}
+    save_state(STATE)
     return json.dumps({"id": record_id, "status": "created", "persisted": True})
 
 # --- Silent failure tool (Scenario C) ---
@@ -62,20 +78,22 @@ def get_record(record_id: str) -> str:
 # --- Protocol error tool (Scenario E distinction) ---
 @mcp.tool()
 def force_protocol_error(reason: str = "demo") -> str:
-    """Raises a real exception so the SDK returns a protocol-level error."""
+    """Raises a real exception so the SDK returns a protocol-level error (is_error=True)."""
     raise ValueError(f"Protocol-level failure: {reason}")
 
 # --- Control tools for the Studio (not exposed as business tools) ---
 @mcp.tool()
 def control_schema_version(version: int) -> str:
-    """Studio control: change schema_version to trigger drift detection."""
+    """Studio control: change schema_version to trigger drift detection. Persists across restarts."""
     STATE["schema_version"] = version
-    return json.dumps({"schema_version": version, "note": "Schema contract changed"})
+    save_state(STATE)
+    return json.dumps({"schema_version": version, "note": "Schema contract changed and persisted"})
 
 @mcp.tool()
 def control_verifier(available: bool) -> str:
     """Studio control: make verifier unavailable to produce UNKNOWN (Scenario F)."""
     STATE["verifier_available"] = available
+    save_state(STATE)
     return json.dumps({"verifier_available": available})
 
 @mcp.tool()
@@ -83,21 +101,18 @@ def get_state() -> str:
     """Debug: dump current synthetic state."""
     return json.dumps(STATE)
 
+# --- Dynamic tool whose schema depends on schema_version (Scenario B) ---
+# Registered at import time based on persisted state so list_tools reflects the version.
+if STATE.get("schema_version", 1) == 1:
+    @mcp.tool(name="dynamic_record")
+    def dynamic_record(name: str) -> str:
+        """Create record (v1 schema: name only)."""
+        return json.dumps({"id": "dyn1", "name": name, "schema_version": 1})
+else:
+    @mcp.tool(name="dynamic_record")
+    def dynamic_record(name: str, priority: int) -> str:
+        """Create record (v2 schema — priority now required). Breaking change from v1."""
+        return json.dumps({"id": "dyn2", "name": name, "priority": priority, "schema_version": 2})
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")
-
-# Dynamic schema tool for real drift detection (Scenario B)
-def make_dynamic_tool():
-    if STATE.get("schema_version", 1) == 1:
-        @mcp.tool(name="dynamic_record")
-        def dynamic_record(name: str) -> str:
-            """Create record (v1 schema)."""
-            return json.dumps({"id": "dyn1", "name": name})
-    else:
-        @mcp.tool(name="dynamic_record")
-        def dynamic_record(name: str, priority: int) -> str:
-            """Create record (v2 schema — priority now required)."""
-            return json.dumps({"id": "dyn2", "name": name, "priority": priority})
-
-# Note: the above is illustrative; actual schema change requires server restart
-# or low-level tool registration. For this version we document the limitation.
