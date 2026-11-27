@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Schema Contract & Silent-Failure Studio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+  <div class="max-w-6xl mx-auto p-6">
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold">MCP Schema Contract & Silent-Failure Studio</h1>
+      <p class="text-gray-400 mt-1">Local-first. Live MCP protocol. No arbitrary commands.</p>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- Snapshots -->
+      <section class="bg-gray-900 rounded-lg p-4">
+        <h2 class="text-xl font-semibold mb-3">Schema Snapshots</h2>
+        <button id="btn-snapshot" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">Connect & Take Snapshot</button>
+        <div id="snapshots" class="mt-4 space-y-2 text-sm"></div>
+      </section>
+
+      <!-- Scenarios -->
+      <section class="bg-gray-900 rounded-lg p-4">
+        <h2 class="text-xl font-semibold mb-3">Contract Tests (A–F)</h2>
+        <div class="flex flex-wrap gap-2">
+          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="A">A Healthy</button>
+          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="B">B Schema</button>
+          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="C">C Silent Fail</button>
+          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="D">D Read-back</button>
+          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="E">E Protocol</button>
+          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="F">F Unknown</button>
+        </div>
+        <div id="scenario-result" class="mt-4 text-sm bg-gray-800 p-3 rounded min-h-[80px]"></div>
+      </section>
+
+      <!-- Diff -->
+      <section class="bg-gray-900 rounded-lg p-4">
+        <h2 class="text-xl font-semibold mb-3">Visual Diff</h2>
+        <div class="flex gap-2 mb-2">
+          <input id="diff-id1" type="number" placeholder="Snapshot ID 1" class="bg-gray-800 px-2 py-1 rounded w-24">
+          <input id="diff-id2" type="number" placeholder="Snapshot ID 2" class="bg-gray-800 px-2 py-1 rounded w-24">
+          <button id="btn-diff" class="bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded">Diff</button>
+        </div>
+        <div id="diff-result" class="text-sm"></div>
+      </section>
+
+      <!-- Report -->
+      <section class="bg-gray-900 rounded-lg p-4">
+        <h2 class="text-xl font-semibold mb-3">Reliability Report</h2>
+        <button id="btn-report" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded">Generate Report</button>
+        <pre id="report" class="mt-4 text-xs bg-gray-800 p-3 rounded overflow-auto max-h-64"></pre>
+      </section>
+    </div>
+
+    <footer class="mt-8 text-xs text-gray-500">
+      Token figures are estimates. Results from live calls to the bundled synthetic MCP server.
+    </footer>
+  </div>
+
+  <script>
+    const API = "http://127.0.0.1:8000";
+
+    async function loadSnapshots() {
+      const res = await fetch(`${API}/api/snapshots`);
+      const data = await res.json();
+      document.getElementById("snapshots").innerHTML = data.map(s =>
+        `<div class="bg-gray-800 p-2 rounded">#${s.id} · ${s.tool_count} tools · hash ${s.schema_hash} · ~${s.token_estimate} tokens</div>`
+      ).join("") || "<p class="text-gray-500">No snapshots yet</p>";
+    }
+
+    document.getElementById("btn-snapshot").onclick = async () => {
+      const res = await fetch(`${API}/api/snapshots`, {method: "POST"});
+      const data = await res.json();
+      alert(`Snapshot #${data.id} taken — ${data.tool_count} tools`);
+      loadSnapshots();
+    };
+
+    document.querySelectorAll(".scenario-btn").forEach(btn => {
+      btn.onclick = async () => {
+        const s = btn.dataset.s;
+        const res = await fetch(`${API}/api/scenarios/${s}`, {method: "POST"});
+        const data = await res.json();
+        const color = data.verdict === "PASS" ? "text-green-400" : data.verdict === "FAIL" ? "text-red-400" : "text-yellow-400";
+        document.getElementById("scenario-result").innerHTML =
+          `<div class="${color} font-bold">${data.verdict}</div><div>${data.explanation}</div><pre class="text-xs mt-1">${JSON.stringify(data.details, null, 2)}</pre>`;
+      };
+    });
+
+    document.getElementById("btn-diff").onclick = async () => {
+      const id1 = document.getElementById("diff-id1").value;
+      const id2 = document.getElementById("diff-id2").value;
+      if (!id1 || !id2) return;
+      const res = await fetch(`${API}/api/diff/${id1}/${id2}`);
+      const data = await res.json();
+      document.getElementById("diff-result").innerHTML =
+        `<div>Breaking changes: ${data.breaking_count}</div>` +
+        data.changes.map(c => `<div class="${c.breaking ? "text-red-400" : "text-gray-300"}">${c.tool}: ${c.type}</div>`).join("") ||
+        "<div>No changes</div>";
+    };
+
+    document.getElementById("btn-report").onclick = async () => {
+      const res = await fetch(`${API}/api/report`);
+      const data = await res.json();
+      document.getElementById("report").textContent = JSON.stringify(data, null, 2);
+    };
+
+    loadSnapshots();
+  </script>
+</body>
+</html>
