@@ -1,135 +1,77 @@
 # Engineering Audit — MCP Schema Contract & Silent-Failure Studio
-Audit date: 27 November 2026. Based on code inspection and live execution against the running backend.
 
-## 1. Frontend Audit
+Audit date: 27 November 2026. Based on code inspection and automated tests run against the bundled synthetic server.
 
-**Is `frontend/src/App.tsx` used by the running application?**  
-No. The React application is not the running entry point.
+## 1. Frontend
 
-**Current running dashboard:**  
-Plain HTML + JavaScript in `frontend/public/dashboard.html`, served by `python3 -m http.server`.
+The running dashboard is `frontend/public/dashboard.html`, served as static HTML. It calls the backend API for snapshots, individual tool schema inspection, classified diffs (breaking / non-breaking), scenario runs with full details, review notes and status, and the reliability report. Loading, success, and failure states are shown in the banner.
 
-**Why:**  
-Vite binary is missing (`node_modules/.bin/vite` does not exist). npm install failed with EPERM/EIO errors in this environment. The React source exists (`App.tsx`, `main.tsx`, `index.html`) but cannot be compiled or served.
+The React source under `frontend/src/` is not the running application. Vite could not be started in this environment.
 
-**Primary entry point:**  
-`frontend/public/dashboard.html` (documented in README). The React scaffolding is unused for the current demo.
+## 2. MCP Apps
 
-## 2. MCP Apps Compatibility Audit
+**Not implemented.** The synthetic server imports `Apps()` but registers no `ui://` resource, sets no `_meta.ui.resourceUri`, and serves no MCP App HTML. This is a standalone web application that uses an MCP client.
 
-**Status: NOT IMPLEMENTED.**
+## 3. Automated verification
 
-Evidence from `synthetic-server/server.py`:
-- Imports `Apps()` and passes `extensions=[apps]` to `MCPServer`.
-- Does **not** register any `ui://` resource.
-- Does **not** set `_meta.ui.resourceUri` on any tool.
-- Does **not** serve HTML with MIME type `text/html;profile=mcp-app`.
-- No embedded UI communication with an MCP host.
-- No compatible host testing was performed.
+`python3 tests/test_studio.py` — 18 checks, 18 passed, 0 failed (27 November 2026).
 
-This is a standalone web application that uses an MCP client (in the FastAPI backend) to talk to an MCP server. It is not an MCP App.
+Diff engine (fixtures):
+- tool added (non-breaking) / tool removed (breaking)
+- property added (non-breaking when optional) / property removed (breaking)
+- required added (breaking) / required removed (non-breaking)
+- enum value removed (breaking) / enum value added (non-breaking)
+- nested type change (breaking) / nested required added (breaking)
 
-## 3. Functional Test Audit (live runs)
+Live scenarios against the synthetic server:
+- A PASS — live tools/list (9 tools)
+- B PASS — baseline snapshot, version change, fresh process, detected breaking required-field change (`priority`) on `dynamic_record`
+- C FAIL — write returned normal success `{"id": "...", "status": "created"}` with no disclosure of failure; independent read-back of that exact ID returned `{"found": false}`
+- D PASS — healthy write plus independent read-back confirmed the record exists with expected data
+- E FAIL — tool execution error (`isError: true` from server exception), classified separately from protocol errors
+- P PASS — JSON-RPC method-not-found, code -32601
+- F UNKNOWN — verifier unavailable on 3 repeated attempts; verifier restored safely in finally block
 
-### Scenario A — Implemented and tested
-- Request: `POST /api/scenarios/A`
-- Result: `{"verdict":"PASS","details":[{"tools":8}]}`
-- Evidence: Live `tools/list` returned 8 tools.
+## 4. Before / after
 
-### Scenario C — Implemented and tested
-- Request: `POST /api/scenarios/C` → calls `create_record_silent_fail`
-- Response: `isError: false`, content contains `"persisted": false`
-- Verdict: FAIL
-- Correctly does not treat `isError: false` as proof of business success.
+Before this pass:
+- C returned `persisted: false` and a note explaining the failure, and the verdict was hardcoded FAIL.
+- D hardcoded FAIL on a missing ID with no write.
+- B reported FAIL because the control tool set the version, without capturing and comparing schemas in the same test.
+- E was labelled a protocol error but tested a tool execution error (`isError: true`).
 
-### Scenario D — Implemented and tested
-- Request: `POST /api/scenarios/D` → calls `get_record` with missing ID
-- Response: `{"found": false, "record": null}`
-- Verdict: FAIL
-- Independent read-back confirmed absence.
+After this pass:
+- C returns a normal success with a generated ID, extracts that ID, and the verdict comes only from independent read-back of that exact ID (FAIL on missing, PASS on found, UNKNOWN if read-back unavailable).
+- B captures a baseline, changes the version, starts a fresh process, captures the updated schema, and the verdict comes from the detected classified diff (required field `priority`).
+- E is labelled Tool Execution Error Handling (`isError: true`). P is the independent JSON-RPC protocol-error test (code -32601).
+- F repeats the unavailable-verifier condition three times, produces UNKNOWN, and restores the verifier even on exception.
 
-### Scenario B — Implemented and tested
-- `control_schema_version` persists state to `/tmp/mcp_studio_synthetic_state.json`.
-- Next server process (new stdio connection) loads the version and registers `dynamic_record` with different input schema (`priority` required when version > 1).
-- Snapshot hashes differ; diff endpoint reports schema_changed with breaking=true.
-
-### Scenario E — Implemented and tested
-- `force_protocol_error` raises ValueError.
-- Official SDK converts the exception into a `CallToolResult` with `is_error=True` and content describing the error.
-- Scenario checks `res.is_error` and correctly classifies as protocol-level error (FAIL).
-
-### Scenario F — Implemented and tested
-- `control_verifier(available=False)` persists the flag.
-- Subsequent `get_record` raises; SDK returns `is_error=True`.
-- Scenario detects the flag and returns UNKNOWN. Verifier is reset afterward.
-
-### Persistence
-- SQLite file `backend/studio.db` survives process restart.
-- Snapshots and test_runs rows remain after backend restart.
-- Diff endpoint previously crashed on key mismatch (`input_schema` vs `inputSchema`); fixed in this audit. Now returns 200.
-
-### Database evidence (after test suite)
-- Snapshots: 3 rows, hashes identical.
-- Test runs: 8+ rows with A/PASS, C/FAIL, D/FAIL, E/FAIL, B/FAIL, F/UNKNOWN.
-
-## 4. Product Quality Audit
-
-**Working:**
-- Health endpoint
-- Snapshot creation and listing
-- Scenario A, B, C, D, E, F end-to-end
-- SQLite persistence across restart
-- Synthetic state persistence (schema version, records)
-- Report endpoint
-- Diff endpoint (after key fix)
-
-**Bugs found and fixed:**
-- Diff endpoint KeyError on `input_schema` (stored JSON uses `inputSchema`). Fixed.
-- Scenarios B/E/F incomplete — fixed by persisting state and checking `is_error` on tool results.
-
-**Remaining issues:**
-- React frontend cannot be started in this environment.
-- No automated test suite beyond manual runs.
-- Empty states and connection-failure paths are not fully exercised in the UI.
-- MCP Apps not implemented.
-
-## 5. Release Status
+## 5. Release status
 
 **Implemented and tested:**
-- Backend MCP client connection to synthetic server
-- Snapshot storage and listing
-- Silent-failure detection (C)
-- Independent read-back (D)
-- Schema drift detection (B) via persisted state + dynamic tool registration
-- Protocol error distinction via `is_error=True` (E)
-- Reliable UNKNOWN path via verifier control (F)
-- SQLite persistence
-- HTML dashboard that calls the API
-- Report JSON
-
-**Implemented but not correctly tested / incomplete:**
-- Diff visualization of real breaking changes (now functional after B)
+- Backend MCP client connection to the synthetic server (stdio)
+- Snapshot storage, listing, and individual tool schema inspection
+- Classified schema diff (breaking / non-breaking) covering tools, properties, required fields, types, enums, nested schemas
+- Silent-failure detection with independent read-back (C)
+- Healthy write with independent read-back (D)
+- Tool execution error handling (E)
+- JSON-RPC protocol error (P)
+- Verifier unavailable → UNKNOWN, with safe restore (F)
+- SQLite persistence for snapshots, test runs, reviews
+- HTML dashboard with loading, success, and failure states, schema inspection, diffs, run details, and reviews
+- Automated test suite (diff fixtures + live scenarios)
 
 **Not implemented:**
-- MCP Apps (`ui://` resource, `_meta.ui.resourceUri`, host embedding, host testing)
+- MCP Apps (`ui://` resource, `_meta.ui.resourceUri`, host embedding)
 - Running React application
-- Automated test suite
 - Arbitrary server connection (intentionally excluded)
+- Production deployment or authentication
 
-## Known Limitations (accurate)
+## Known limitations
 - Only the bundled synthetic server is supported.
 - Token estimates are character-based approximations.
-- Schema changes (Scenario B) take effect on the next server process start.
-- SDK exception handling means protocol errors appear as tool results with `is_error=True` rather than raised client exceptions.
+- Schema changes take effect on the next server process start. Scenario B starts that process itself.
+- Tool execution errors appear as `isError: true` tool results. JSON-RPC protocol errors are a separate response type, tested by scenario P.
 - MCP Apps is not implemented.
 - Primary UI is the static HTML dashboard.
-
-## Demo Recording Plan (honest)
-1. Start backend and serve `dashboard.html`.
-2. Click Connect & Take Snapshot (A).
-3. Run Scenario B, then take a new snapshot and show the diff (dynamic_record now requires priority).
-4. Run Scenario C — show FAIL with `is_error: false` and `persisted: false`.
-5. Run Scenario D — show FAIL with `found: false`.
-6. Run Scenario E — show protocol error via `is_error=True`.
-7. Run Scenario F — show UNKNOWN when verifier unavailable.
-8. Show report JSON. Note MCP Apps is not implemented.
+- Disk I/O errors can occur under concurrent SQLite writes in constrained environments; clean DB runs pass consistently.

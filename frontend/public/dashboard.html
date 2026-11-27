@@ -1,112 +1,238 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MCP Schema Contract & Silent-Failure Studio</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+<meta charset="UTF-8">
+<title>MCP Schema Contract & Silent-Failure Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: system-ui, sans-serif; }
+  pre { white-space: pre-wrap; word-break: break-word; }
+</style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen">
-  <div class="max-w-6xl mx-auto p-6">
-    <header class="mb-8">
-      <h1 class="text-3xl font-bold">MCP Schema Contract & Silent-Failure Studio</h1>
-      <p class="text-gray-400 mt-1">Local-first. Live MCP protocol. No arbitrary commands.</p>
-    </header>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-6">
+<header class="mb-6 border-b border-slate-800 pb-4">
+  <h1 class="text-2xl font-bold">MCP Schema Contract & Silent-Failure Studio</h1>
+  <p class="text-slate-400 mt-1 text-sm">Local-first reliability application. Bundled synthetic MCP server. Live stdio calls only.</p>
+  <p class="text-xs text-amber-400 mt-1">Token estimates are approximate. MCP Apps are not implemented. Standalone dashboard.</p>
+  <div id="banner" class="mt-3 text-sm px-3 py-2 rounded bg-slate-800 text-slate-300">Ready</div>
+</header>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <!-- Snapshots -->
-      <section class="bg-gray-900 rounded-lg p-4">
-        <h2 class="text-xl font-semibold mb-3">Schema Snapshots</h2>
-        <button id="btn-snapshot" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">Connect & Take Snapshot</button>
-        <div id="snapshots" class="mt-4 space-y-2 text-sm"></div>
-      </section>
-
-      <!-- Scenarios -->
-      <section class="bg-gray-900 rounded-lg p-4">
-        <h2 class="text-xl font-semibold mb-3">Contract Tests (A–F)</h2>
-        <div class="flex flex-wrap gap-2">
-          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="A">A Healthy</button>
-          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="B">B Schema</button>
-          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="C">C Silent Fail</button>
-          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="D">D Read-back</button>
-          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="E">E Protocol</button>
-          <button class="scenario-btn bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-s="F">F Unknown</button>
-        </div>
-        <div id="scenario-result" class="mt-4 text-sm bg-gray-800 p-3 rounded min-h-[80px]"></div>
-      </section>
-
-      <!-- Diff -->
-      <section class="bg-gray-900 rounded-lg p-4">
-        <h2 class="text-xl font-semibold mb-3">Visual Diff</h2>
-        <div class="flex gap-2 mb-2">
-          <input id="diff-id1" type="number" placeholder="Snapshot ID 1" class="bg-gray-800 px-2 py-1 rounded w-24">
-          <input id="diff-id2" type="number" placeholder="Snapshot ID 2" class="bg-gray-800 px-2 py-1 rounded w-24">
-          <button id="btn-diff" class="bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded">Diff</button>
-        </div>
-        <div id="diff-result" class="text-sm"></div>
-      </section>
-
-      <!-- Report -->
-      <section class="bg-gray-900 rounded-lg p-4">
-        <h2 class="text-xl font-semibold mb-3">Reliability Report</h2>
-        <button id="btn-report" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded">Generate Report</button>
-        <pre id="report" class="mt-4 text-xs bg-gray-800 p-3 rounded overflow-auto max-h-64"></pre>
-      </section>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="space-y-4">
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <h2 class="font-semibold mb-3">Server inventory</h2>
+      <button id="btn-snap" onclick="takeSnapshot()" class="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 py-2 rounded-lg font-medium">Connect & take snapshot</button>
     </div>
 
-    <footer class="mt-8 text-xs text-gray-500">
-      Token figures are estimates. Results from live calls to the bundled synthetic MCP server.
-    </footer>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <h2 class="font-semibold mb-3">Contract & outcome tests</h2>
+      <div class="grid grid-cols-1 gap-2">
+        <button onclick="run('A')" class="scenario bg-slate-800 hover:bg-slate-700 py-2 rounded text-sm text-left px-3">A — Healthy connection</button>
+        <button onclick="run('B')" class="scenario bg-slate-800 hover:bg-slate-700 py-2 rounded text-sm text-left px-3">B — Schema drift (auto)</button>
+        <button onclick="run('C')" class="scenario bg-slate-800 hover:bg-slate-700 py-2 rounded text-sm text-left px-3">C — Silent failure + read-back</button>
+        <button onclick="run('D')" class="scenario bg-slate-800 hover:bg-slate-700 py-2 rounded text-sm text-left px-3">D — Healthy write + read-back</button>
+        <button onclick="run('E')" class="scenario bg-slate-800 hover:bg-slate-700 py-2 rounded text-sm text-left px-3">E — Tool execution error</button>
+        <button onclick="run('P')" class="scenario bg-slate-800 hover:bg-slate-700 py-2 rounded text-sm text-left px-3">P — JSON-RPC protocol error</button>
+        <button onclick="run('F')" class="scenario bg-slate-800 hover:bg-slate-700 py-2 rounded text-sm text-left px-3">F — Verifier unavailable</button>
+      </div>
+    </div>
+
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <h2 class="font-semibold mb-2">Reliability report</h2>
+      <pre id="report" class="text-xs bg-slate-950 p-2 rounded overflow-auto max-h-40"></pre>
+      <button onclick="copyReport()" class="mt-2 text-xs text-sky-400">Copy JSON</button>
+    </div>
   </div>
 
-  <script>
-    const API = "http://127.0.0.1:8000";
+  <div class="space-y-4">
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <h2 class="font-semibold mb-3">Schema snapshots</h2>
+      <div id="snapshots" class="space-y-2 max-h-64 overflow-auto"></div>
+      <div class="mt-3 flex gap-2">
+        <button onclick="diffSelected()" class="flex-1 bg-sky-700 hover:bg-sky-600 py-2 rounded text-sm">Diff selected</button>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">Select two snapshots (older first) to compare.</p>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <h2 class="font-semibold mb-3">Tool schema</h2>
+      <div id="schema-view" class="text-xs text-slate-400">Click a snapshot to inspect its tools.</div>
+    </div>
+  </div>
 
-    async function loadSnapshots() {
-      const res = await fetch(`${API}/api/snapshots`);
-      const data = await res.json();
-      document.getElementById("snapshots").innerHTML = data.map(s =>
-        `<div class="bg-gray-800 p-2 rounded">#${s.id} · ${s.tool_count} tools · hash ${s.schema_hash} · ~${s.token_estimate} tokens</div>`
-      ).join("") || "<p class="text-gray-500">No snapshots yet</p>";
-    }
+  <div class="space-y-4">
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <h2 class="font-semibold mb-3">Schema diff</h2>
+      <div id="diff" class="text-sm text-slate-400">No diff yet.</div>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <h2 class="font-semibold mb-3">Test runs</h2>
+      <div id="runs" class="space-y-2 max-h-64 overflow-auto"></div>
+    </div>
+    <div class="bg-slate-900 rounded-xl p-4 border border-slate-800">
+      <h2 class="font-semibold mb-3">Review notes</h2>
+      <div class="space-y-2">
+        <select id="rev-target" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm"></select>
+        <textarea id="rev-note" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm" rows="2" placeholder="Note"></textarea>
+        <select id="rev-status" class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm">
+          <option value="reviewed">reviewed</option>
+          <option value="accepted">accepted</option>
+          <option value="needs-follow-up">needs follow-up</option>
+        </select>
+        <button onclick="addReview()" class="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded text-sm">Save review</button>
+      </div>
+      <div id="reviews" class="mt-3 space-y-2 max-h-40 overflow-auto text-xs"></div>
+    </div>
+  </div>
+</div>
 
-    document.getElementById("btn-snapshot").onclick = async () => {
-      const res = await fetch(`${API}/api/snapshots`, {method: "POST"});
-      const data = await res.json();
-      alert(`Snapshot #${data.id} taken — ${data.tool_count} tools`);
-      loadSnapshots();
-    };
+<script>
+const API = 'http://127.0.0.1:8000/api';
+let snapshots = [];
+let runs = [];
+let selected = [];
+let busy = false;
 
-    document.querySelectorAll(".scenario-btn").forEach(btn => {
-      btn.onclick = async () => {
-        const s = btn.dataset.s;
-        const res = await fetch(`${API}/api/scenarios/${s}`, {method: "POST"});
-        const data = await res.json();
-        const color = data.verdict === "PASS" ? "text-green-400" : data.verdict === "FAIL" ? "text-red-400" : "text-yellow-400";
-        document.getElementById("scenario-result").innerHTML =
-          `<div class="${color} font-bold">${data.verdict}</div><div>${data.explanation}</div><pre class="text-xs mt-1">${JSON.stringify(data.details, null, 2)}</pre>`;
-      };
-    });
+function setBanner(text, kind) {
+  const el = document.getElementById('banner');
+  el.textContent = text;
+  el.className = 'mt-3 text-sm px-3 py-2 rounded ' + (
+    kind === 'error' ? 'bg-red-900/60 text-red-200' :
+    kind === 'ok' ? 'bg-emerald-900/50 text-emerald-200' :
+    kind === 'busy' ? 'bg-sky-900/50 text-sky-200' :
+    'bg-slate-800 text-slate-300'
+  );
+}
 
-    document.getElementById("btn-diff").onclick = async () => {
-      const id1 = document.getElementById("diff-id1").value;
-      const id2 = document.getElementById("diff-id2").value;
-      if (!id1 || !id2) return;
-      const res = await fetch(`${API}/api/diff/${id1}/${id2}`);
-      const data = await res.json();
-      document.getElementById("diff-result").innerHTML =
-        `<div>Breaking changes: ${data.breaking_count}</div>` +
-        data.changes.map(c => `<div class="${c.breaking ? "text-red-400" : "text-gray-300"}">${c.tool}: ${c.type}</div>`).join("") ||
-        "<div>No changes</div>";
-    };
+function setBusy(on) {
+  busy = on;
+  document.querySelectorAll('button').forEach(b => b.disabled = on);
+}
 
-    document.getElementById("btn-report").onclick = async () => {
-      const res = await fetch(`${API}/api/report`);
-      const data = await res.json();
-      document.getElementById("report").textContent = JSON.stringify(data, null, 2);
-    };
+async function refresh() {
+  const [s, t, rep, revs] = await Promise.all([
+    fetch(API + '/snapshots').then(r => r.json()),
+    fetch(API + '/test-runs').then(r => r.json()),
+    fetch(API + '/report').then(r => r.json()),
+    fetch(API + '/reviews').then(r => r.json()),
+  ]);
+  snapshots = s;
+  runs = t;
+  document.getElementById('snapshots').innerHTML = s.map(x => `
+    <label class="flex items-start gap-2 p-2 rounded border border-slate-800 bg-slate-800/40 cursor-pointer">
+      <input type="checkbox" class="mt-1" value="${x.id}" onchange="toggleSnap(${x.id}, this.checked)">
+      <div class="flex-1" onclick="inspect(${x.id})">
+        <div class="flex justify-between text-sm"><span>#${x.id} • ${x.tool_count} tools</span><span class="text-slate-400">${x.token_estimate} tok est.</span></div>
+        <div class="text-xs text-slate-500 font-mono">${x.schema_hash}</div>
+        <div class="text-xs text-slate-600">${x.taken_at}</div>
+      </div>
+    </label>`).join('') || '<p class="text-xs text-slate-500">No snapshots yet.</p>';
+  document.getElementById('runs').innerHTML = t.map(r => `
+    <div class="p-2 bg-slate-950 rounded border border-slate-800">
+      <div class="flex justify-between text-sm"><span>Scenario ${r.scenario}</span>
+        <span class="${r.verdict==='PASS'?'text-emerald-400':r.verdict==='FAIL'?'text-red-400':'text-amber-400'}">${r.verdict}</span>
+      </div>
+      <p class="text-xs text-slate-400 mt-1">${r.explanation}</p>
+      <details class="mt-1"><summary class="text-xs text-sky-400 cursor-pointer">details</summary>
+        <pre class="text-xs text-slate-500 mt-1">${JSON.stringify(r.details, null, 2)}</pre>
+      </details>
+    </div>`).join('') || '<p class="text-xs text-slate-500">No runs yet.</p>';
+  document.getElementById('report').textContent = JSON.stringify(rep, null, 2);
+  const sel = document.getElementById('rev-target');
+  sel.innerHTML = t.map(r => `<option value="${r.id}">Run #${r.id} · ${r.scenario} · ${r.verdict}</option>`).join('')
+    || '<option value="0">No runs</option>';
+  document.getElementById('reviews').innerHTML = revs.map(rv => `
+    <div class="p-2 bg-slate-950 rounded border border-slate-800">
+      <div class="flex justify-between"><span>#${rv.target_id} · ${rv.status}</span><span class="text-slate-500">${rv.created_at}</span></div>
+      <p class="text-slate-300">${rv.note || '(no note)'}</p>
+    </div>`).join('') || '<p class="text-slate-500">No reviews yet.</p>';
+}
 
-    loadSnapshots();
-  </script>
+function toggleSnap(id, on) {
+  if (on) selected.push(id); else selected = selected.filter(x => x !== id);
+  selected = selected.slice(-2);
+}
+
+async function inspect(id) {
+  const s = await fetch(API + '/snapshots/' + id).then(r => r.json());
+  document.getElementById('schema-view').innerHTML = s.tools.map(t => `
+    <details class="mb-2 border border-slate-800 rounded p-2">
+      <summary class="cursor-pointer text-slate-200">${t.name}</summary>
+      <p class="text-slate-400 mt-1">${t.description || ''}</p>
+      <pre class="mt-1 text-slate-500">${JSON.stringify(t.inputSchema, null, 2)}</pre>
+    </details>`).join('');
+}
+
+async function takeSnapshot() {
+  setBusy(true); setBanner('Taking snapshot…', 'busy');
+  try {
+    const res = await fetch(API + '/snapshots', {method:'POST'});
+    if (!res.ok) throw new Error('snapshot failed: ' + res.status);
+    const data = await res.json();
+    await refresh();
+    setBanner('Snapshot #' + data.id + ' saved · ' + data.tool_count + ' tools', 'ok');
+  } catch (e) {
+    setBanner('Snapshot failed: ' + e.message, 'error');
+  } finally { setBusy(false); }
+}
+
+async function run(sc) {
+  setBusy(true); setBanner('Running scenario ' + sc + '…', 'busy');
+  try {
+    const res = await fetch(API + '/scenarios/' + sc, {method:'POST'});
+    if (!res.ok) throw new Error('scenario failed: ' + res.status);
+    const data = await res.json();
+    await refresh();
+    setBanner(sc + ': ' + data.verdict + ' — ' + data.explanation, data.verdict === 'FAIL' ? 'error' : 'ok');
+  } catch (e) {
+    setBanner('Scenario ' + sc + ' failed: ' + e.message, 'error');
+  } finally { setBusy(false); }
+}
+
+async function diffSelected() {
+  if (selected.length < 2) { setBanner('Select two snapshots first.', 'error'); return; }
+  const [a, b] = selected;
+  setBanner('Diffing #' + a + ' → #' + b + '…', 'busy');
+  try {
+    const d = await fetch(API + '/diff/' + a + '/' + b).then(r => r.json());
+    const items = (d.changes || []).map(c => `
+      <li class="py-1 border-b border-slate-800 ${c.breaking ? 'text-red-300' : 'text-slate-300'}">
+        <span class="font-mono">${c.tool}</span> · ${c.type}
+        ${c.path ? '<span class="text-slate-500"> ' + c.path + '</span>' : ''}
+        <span class="ml-1 text-xs ${c.breaking ? 'text-red-400' : 'text-emerald-400'}">${c.breaking ? 'BREAKING' : 'non-breaking'}</span>
+      </li>`).join('');
+    document.getElementById('diff').innerHTML = `
+      <p class="mb-2">#${d.from} → #${d.to} · breaking <span class="text-red-400 font-bold">${d.breaking_count}</span>
+      · non-breaking <span class="text-emerald-400 font-bold">${d.non_breaking_count}</span></p>
+      <ul class="text-xs space-y-1">${items || '<li class="text-slate-500">No changes.</li>'}</ul>`;
+    setBanner('Diff ready.', 'ok');
+  } catch (e) {
+    setBanner('Diff failed: ' + e.message, 'error');
+  }
+}
+
+async function addReview() {
+  const target_id = document.getElementById('rev-target').value;
+  const note = document.getElementById('rev-note').value;
+  const status = document.getElementById('rev-status').value;
+  setBanner('Saving review…', 'busy');
+  try {
+    const res = await fetch(API + '/reviews?target_type=run&target_id=' + encodeURIComponent(target_id)
+      + '&note=' + encodeURIComponent(note) + '&status=' + encodeURIComponent(status), {method:'POST'});
+    if (!res.ok) throw new Error('review failed: ' + res.status);
+    document.getElementById('rev-note').value = '';
+    await refresh();
+    setBanner('Review saved.', 'ok');
+  } catch (e) {
+    setBanner('Review failed: ' + e.message, 'error');
+  }
+}
+
+function copyReport() {
+  navigator.clipboard.writeText(document.getElementById('report').textContent);
+  setBanner('Report copied.', 'ok');
+}
+
+refresh().catch(e => setBanner('Cannot reach backend: ' + e.message, 'error'));
+</script>
 </body>
 </html>
