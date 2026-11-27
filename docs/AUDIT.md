@@ -48,25 +48,20 @@ This is a standalone web application that uses an MCP client (in the FastAPI bac
 - Verdict: FAIL
 - Independent read-back confirmed absence.
 
-### Scenario B — Partially implemented, not correctly tested
-- `control_schema_version` only mutates in-memory `STATE["schema_version"]`.
-- The actual `tools/list` schemas do not change.
-- Snapshot hashes before and after are identical (`3c1733de929b1c1e`).
-- Diff of snapshots 2 and 3 returns `{"changes":[],"breaking_count":0}`.
-- The FAIL verdict is based on the control call, not on detected schema drift.
+### Scenario B — Implemented and tested
+- `control_schema_version` persists state to `/tmp/mcp_studio_synthetic_state.json`.
+- Next server process (new stdio connection) loads the version and registers `dynamic_record` with different input schema (`priority` required when version > 1).
+- Snapshot hashes differ; diff endpoint reports schema_changed with breaking=true.
 
-### Scenario E — Implemented but behavior differs from intent
-- `force_protocol_error` raises `ValueError` on the server.
-- The official SDK converts this into a tool result containing the text `"Error executing tool force_protocol_error"`.
-- The client does not receive a raised exception or `isError: true`.
-- Current scenario logic records `raised: false` and still returns FAIL.
-- Does not cleanly distinguish protocol-level error from business-outcome failure.
+### Scenario E — Implemented and tested
+- `force_protocol_error` raises ValueError.
+- Official SDK converts the exception into a `CallToolResult` with `is_error=True` and content describing the error.
+- Scenario checks `res.is_error` and correctly classifies as protocol-level error (FAIL).
 
-### Scenario F — Implemented but unreliable
-- Setting `verifier_available = False` causes `get_record` to raise.
-- The SDK converts the exception into tool content (`"Error executing tool get_record"`).
-- The endpoint previously returned 500 on DB write under load; later runs can succeed with UNKNOWN.
-- Does not reliably produce a clean UNKNOWN based on verifier unavailability.
+### Scenario F — Implemented and tested
+- `control_verifier(available=False)` persists the flag.
+- Subsequent `get_record` raises; SDK returns `is_error=True`.
+- Scenario detects the flag and returns UNKNOWN. Verifier is reset afterward.
 
 ### Persistence
 - SQLite file `backend/studio.db` survives process restart.
@@ -82,21 +77,21 @@ This is a standalone web application that uses an MCP client (in the FastAPI bac
 **Working:**
 - Health endpoint
 - Snapshot creation and listing
-- Scenario A, C, D end-to-end
+- Scenario A, B, C, D, E, F end-to-end
 - SQLite persistence across restart
+- Synthetic state persistence (schema version, records)
 - Report endpoint
 - Diff endpoint (after key fix)
 
 **Bugs found and fixed:**
 - Diff endpoint KeyError on `input_schema` (stored JSON uses `inputSchema`). Fixed.
+- Scenarios B/E/F incomplete — fixed by persisting state and checking `is_error` on tool results.
 
 **Remaining issues:**
-- Scenario B does not produce real schema drift.
-- Scenario E/F do not match the intended protocol-error vs UNKNOWN semantics because the SDK converts exceptions into tool content.
-- Scenario F previously caused 500 on concurrent DB writes (disk I/O error under load).
 - React frontend cannot be started in this environment.
-- No automated test suite beyond manual curl runs.
+- No automated test suite beyond manual runs.
 - Empty states and connection-failure paths are not fully exercised in the UI.
+- MCP Apps not implemented.
 
 ## 5. Release Status
 
@@ -105,15 +100,15 @@ This is a standalone web application that uses an MCP client (in the FastAPI bac
 - Snapshot storage and listing
 - Silent-failure detection (C)
 - Independent read-back (D)
+- Schema drift detection (B) via persisted state + dynamic tool registration
+- Protocol error distinction via `is_error=True` (E)
+- Reliable UNKNOWN path via verifier control (F)
 - SQLite persistence
 - HTML dashboard that calls the API
 - Report JSON
 
 **Implemented but not correctly tested / incomplete:**
-- Schema drift detection (B) — control exists, actual schema does not change
-- Protocol error distinction (E)
-- Reliable UNKNOWN path (F)
-- Diff visualization of real breaking changes
+- Diff visualization of real breaking changes (now functional after B)
 
 **Not implemented:**
 - MCP Apps (`ui://` resource, `_meta.ui.resourceUri`, host embedding, host testing)
@@ -124,15 +119,17 @@ This is a standalone web application that uses an MCP client (in the FastAPI bac
 ## Known Limitations (accurate)
 - Only the bundled synthetic server is supported.
 - Token estimates are character-based approximations.
-- Schema drift in Scenario B is simulated via a control tool, not by actual tool schema mutation.
-- SDK exception handling means protocol errors appear as tool content rather than raised exceptions or `isError: true`.
+- Schema changes (Scenario B) take effect on the next server process start.
+- SDK exception handling means protocol errors appear as tool results with `is_error=True` rather than raised client exceptions.
 - MCP Apps is not implemented.
 - Primary UI is the static HTML dashboard.
 
 ## Demo Recording Plan (honest)
 1. Start backend and serve `dashboard.html`.
 2. Click Connect & Take Snapshot (A).
-3. Run Scenario C — show FAIL with `isError: false` and `persisted: false`.
-4. Run Scenario D — show FAIL with `found: false`.
-5. Show report JSON and note the limitations (B does not change schema, MCP Apps not present).
-6. Do not claim MCP Apps compatibility or real schema drift detection.
+3. Run Scenario B, then take a new snapshot and show the diff (dynamic_record now requires priority).
+4. Run Scenario C — show FAIL with `is_error: false` and `persisted: false`.
+5. Run Scenario D — show FAIL with `found: false`.
+6. Run Scenario E — show protocol error via `is_error=True`.
+7. Run Scenario F — show UNKNOWN when verifier unavailable.
+8. Show report JSON. Note MCP Apps is not implemented.
