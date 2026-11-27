@@ -124,35 +124,43 @@ async def run_scenario(scenario: str):
             details.append({"tools": len(tools.tools)})
             return "PASS", "Connected and listed tools from healthy synthetic server.", details
         if scenario == "B":
-            await session.call_tool("control_schema_version", {"version": 2})
-            details.append({"schema_version_set": 2})
-            return "FAIL", "Schema version changed — breaking contract shift detected on next snapshot.", details
+            # Set version; actual schema change is visible on the *next* process start
+            # because tools are registered at import time based on persisted state.
+            res = await session.call_tool("control_schema_version", {"version": 2})
+            text = res.content[0].text if res.content else ""
+            details.append({"control_result": text, "note": "Schema change takes effect on next connection/snapshot"})
+            return "FAIL", "Schema version set to 2. Next snapshot will show breaking change on dynamic_record (priority now required).", details
         if scenario == "C":
             res = await session.call_tool("create_record_silent_fail", {"name": "test", "value": 1})
             text = res.content[0].text if res.content else ""
-            details.append({"isError": getattr(res, "isError", False), "text": text})
-            return "FAIL", "Tool returned success text with isError=false but did not persist the record.", details
+            is_err = getattr(res, "is_error", getattr(res, "isError", False))
+            details.append({"is_error": is_err, "text": text})
+            return "FAIL", "Tool returned success text with is_error=false but did not persist the record.", details
         if scenario == "D":
             res = await session.call_tool("get_record", {"record_id": "missing"})
             text = res.content[0].text if res.content else ""
             details.append({"readback": text})
             return "FAIL", "Independent read-back confirmed the expected record is missing.", details
         if scenario == "E":
-            try:
-                await session.call_tool("force_protocol_error", {"reason": "demo"})
-                details.append({"raised": False})
-            except Exception as e:
-                details.append({"raised": True, "msg": str(e)})
-            return "FAIL", "Protocol-level error correctly distinguished from business-outcome failure.", details
+            res = await session.call_tool("force_protocol_error", {"reason": "demo"})
+            is_err = getattr(res, "is_error", getattr(res, "isError", False))
+            text = res.content[0].text if res.content else ""
+            details.append({"is_error": is_err, "text": text, "raised_exception_on_client": False})
+            # Protocol error is reported via is_error=True on the tool result
+            if is_err:
+                return "FAIL", "Protocol-level error correctly reported as is_error=True (SDK surfaces server exception as tool error result).", details
+            return "FAIL", "Expected protocol error but is_error was false.", details
         if scenario == "F":
             await session.call_tool("control_verifier", {"available": False})
-            try:
-                await session.call_tool("get_record", {"record_id": "x"})
-                details.append({"reachable": True})
-            except Exception:
-                details.append({"reachable": False})
+            res = await session.call_tool("get_record", {"record_id": "x"})
+            is_err = getattr(res, "is_error", getattr(res, "isError", False))
+            text = res.content[0].text if res.content else ""
+            details.append({"is_error": is_err, "text": text})
+            # Reset verifier
             await session.call_tool("control_verifier", {"available": True})
-            return "UNKNOWN", "Verifier was unavailable — reported UNKNOWN instead of incorrect PASS or FAIL.", details
+            if is_err:
+                return "UNKNOWN", "Verifier unavailable — tool returned is_error=True. Reported UNKNOWN instead of incorrect PASS/FAIL.", details
+            return "UNKNOWN", "Verifier control applied; is_error was not set as expected.", details
         raise HTTPException(400, "Unknown scenario")
 
     verdict, explanation, details = await with_session(do)
