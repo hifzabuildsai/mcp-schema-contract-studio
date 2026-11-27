@@ -1,17 +1,19 @@
-# Architecture Diagram (text)
+# Architecture
 
 User
   │
   ▼
-React Dashboard (Vite + React + Tailwind)
+HTML Dashboard (frontend/public/dashboard.html)
   │  fetch /api/*
   ▼
 FastAPI Backend (official MCP Python SDK client)
-  │  stdio
+  │  stdio (fresh process per session)
   ▼
 Bundled Synthetic MCP Server
   │
   ▼
-In-memory state + SQLite persistence of snapshots / test runs / reviews
+JSON state file (/tmp) + SQLite (snapshots, test runs, reviews)
 
-MCP Apps: synthetic server can serve a ui:// resource; the standalone web app is the primary interactive surface for this version.
+React source exists under frontend/src/ but is not the running application.
+
+MCP Apps are not implemented. The synthetic server does not serve a ui:// resource.
