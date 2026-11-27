@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
 Bundled Synthetic MCP Server for MCP Schema Contract & Silent-Failure Studio.
-Supports dynamic schema changes, silent failures, and independent read-back for deterministic demos.
-All scenarios A-F can be exercised against this server.
 
-State is persisted to a JSON file so schema version and records survive across stdio process restarts.
+- State is persisted to a JSON file so schema version, records, and verifier
+  availability survive stdio process restarts.
+- The silent-failure write tool returns a normal success response with a
+  generated record ID. It does not disclose that the write was not persisted.
+- dynamic_record's schema is registered at process start from the persisted
+  schema version, so a fresh process after control_schema_version reflects
+  the new contract.
 """
 from mcp.server.mcpserver import MCPServer
 from mcp.server.apps import Apps
 import json
 import time
 from pathlib import Path
-from typing import Any
 
 STATE_FILE = Path("/tmp/mcp_studio_synthetic_state.json")
 
@@ -35,7 +38,6 @@ STATE = load_state()
 apps = Apps()
 mcp = MCPServer("synthetic-studio-server", extensions=[apps])
 
-# --- Healthy tools (Scenario A) ---
 @mcp.tool()
 def list_records() -> str:
     """List all records currently stored. Healthy read tool."""
@@ -47,25 +49,16 @@ def create_record(name: str, value: int) -> str:
     record_id = f"rec_{int(time.time()*1000)}"
     STATE["records"][record_id] = {"name": name, "value": value, "created": time.time()}
     save_state(STATE)
-    return json.dumps({"id": record_id, "status": "created", "persisted": True})
+    return json.dumps({"id": record_id, "status": "created"})
 
-# --- Silent failure tool (Scenario C) ---
 @mcp.tool()
 def create_record_silent_fail(name: str, value: int) -> str:
-    """
-    Claims success but deliberately does NOT persist the record.
-    Returns isError:false (default) with success text. Used for Scenario C.
-    """
-    # Intentionally do nothing to STATE
-    fake_id = f"fake_{int(time.time()*1000)}"
-    return json.dumps({
-        "id": fake_id,
-        "status": "created",
-        "persisted": False,
-        "note": "This is a silent failure - nothing was written"
-    })
+    """Create a new record. Returns a normal success response with a generated ID.
+    Deliberately does not persist the record. The response does not disclose that."""
+    record_id = f"rec_{int(time.time()*1000)}"
+    # Intentionally do not write to STATE and do not save.
+    return json.dumps({"id": record_id, "status": "created"})
 
-# --- Read-back tool for independent verification (Scenario D) ---
 @mcp.tool()
 def get_record(record_id: str) -> str:
     """Independent read-back. Returns the actual stored record or missing."""
@@ -75,23 +68,22 @@ def get_record(record_id: str) -> str:
         return json.dumps({"found": True, "record": STATE["records"][record_id]})
     return json.dumps({"found": False, "record": None})
 
-# --- Protocol error tool (Scenario E distinction) ---
 @mcp.tool()
-def force_protocol_error(reason: str = "demo") -> str:
-    """Raises a real exception so the SDK returns a protocol-level error (is_error=True)."""
-    raise ValueError(f"Protocol-level failure: {reason}")
+def force_tool_error(reason: str = "demo") -> str:
+    """Raises during tool execution. The SDK surfaces this as isError:true.
+    This is a tool execution error, not a JSON-RPC protocol error."""
+    raise ValueError(f"Tool execution failure: {reason}")
 
-# --- Control tools for the Studio (not exposed as business tools) ---
 @mcp.tool()
 def control_schema_version(version: int) -> str:
-    """Studio control: change schema_version to trigger drift detection. Persists across restarts."""
+    """Studio control: change schema_version. Takes effect on the next process start."""
     STATE["schema_version"] = version
     save_state(STATE)
     return json.dumps({"schema_version": version, "note": "Schema contract changed and persisted"})
 
 @mcp.tool()
 def control_verifier(available: bool) -> str:
-    """Studio control: make verifier unavailable to produce UNKNOWN (Scenario F)."""
+    """Studio control: make the verifier available or unavailable."""
     STATE["verifier_available"] = available
     save_state(STATE)
     return json.dumps({"verifier_available": available})
@@ -101,8 +93,7 @@ def get_state() -> str:
     """Debug: dump current synthetic state."""
     return json.dumps(STATE)
 
-# --- Dynamic tool whose schema depends on schema_version (Scenario B) ---
-# Registered at import time based on persisted state so list_tools reflects the version.
+# Registered at import time from persisted state so list_tools reflects the version.
 if STATE.get("schema_version", 1) == 1:
     @mcp.tool(name="dynamic_record")
     def dynamic_record(name: str) -> str:
